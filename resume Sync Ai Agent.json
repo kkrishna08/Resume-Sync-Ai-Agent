@@ -1,0 +1,349 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Resume and JD",
+        "formDescription": "Upload your current resume and the JD of the job ",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Upload Resume pdf",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Job description text",
+              "fieldType": "textarea",
+              "placeholder": "write the job's description",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        80
+      ],
+      "id": "37722a80-ceb7-4138-84fb-a980ed5836d0",
+      "name": "On form submission",
+      "webhookId": "ce569c3e-101a-486d-97a9-42925bf59a94"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "Upload_Resume_pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        -112
+      ],
+      "id": "0f63fd2a-34fb-481b-aa28-d1d8f36d4f52",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0];\n\nfunction clean(text, maxChars = 8000) {\n  if (!text) return \"\";\n  return text\n    .replace(/\\r\\n/g, '\\n')      // normalize newlines\n    .replace(/\\s+/g, ' ')        // collapse spaces\n    .trim()\n    .substring(0, maxChars);     // avoid huge prompts\n}\n\n// From PDF node:\nconst resumeRaw = item.json.text;\n// From form:\nconst jdRaw = item.json[\"Job description text\"];\n\nitem.json.cleaned_resume = clean(resumeRaw);\nitem.json.cleaned_jd = clean(jdRaw);\n\nreturn [item];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "87d4221c-5001-41f9-a393-6ef5c9cd875d",
+      "name": "Text Cleaning"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a job description analysis assistant.\n\nJob Description:\n{{ $json.cleaned_jd }}\n\nExtract and return ONLY valid JSON in this structure:\n{\n  \"job_title\": string,\n  \"company\": string | null,\n  \"must_have_skills\": [string],\n  \"nice_to_have_skills\": [string],\n  \"responsibilities\": [string],\n  \"keywords\": [string]\n}\n\nNo explanation. No markdown. Only JSON.\n",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "6c70446e-1165-48f5-8320-6062aae7b970",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        288
+      ],
+      "id": "51d12eec-6f64-415d-bfc9-cda002344d6a",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "WFIooEMHWZn8bNIl",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "73326609-698a-45e6-b374-51049c677cae",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "sendTo": "krishnakansal732@gmail.com",
+        "subject": "=Application Pack – {{ $json.job_title }} at {{ $json.company }}\n",
+        "message": "=<html>\n  <body style=\"font-family: Arial, sans-serif; line-height: 1.6;\">\n    <h1 style=\"margin-bottom: 0.2em;\">\n      {{ $json.job_title }} – {{ $json.company }}\n    </h1>\n    <hr />\n\n    <h2>Summary</h2>\n    <p>{{ $json.summary }}</p>\n\n    <h2>Resume Bullet Points</h2>\n    {{ $json.bullets_html }}\n\n    <h2>Cover Letter</h2>\n    <pre style=\"white-space: pre-wrap; font-family: inherit;\">\n{{ $json.cover_letter }}\n    </pre>\n\n    <h2>HR Email</h2>\n    <pre style=\"white-space: pre-wrap; font-family: inherit;\">\n{{ $json.hr_email }}\n    </pre>\n  </body>\n</html>\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2624,
+        0
+      ],
+      "id": "5239e771-2255-46b3-b297-0d665e4cf438",
+      "name": "Send a message",
+      "webhookId": "5bfc0b5a-6f3c-4259-8d69-53d3084b7409",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "7NlNTDC1E2OogMjT",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0];\n\n// Parse JD JSON coming from the JD parser\nconst raw = item.json.text ?? \"\";\nlet parsed;\n\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  parsed = { parse_error: true, raw };\n}\n\n// Store structured JD\nitem.json.jd_struct = parsed;\n\nreturn [item];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        0
+      ],
+      "id": "2f5a27c8-3f91-4730-85cb-577920ce4b77",
+      "name": "JD Struct Extraction"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are helping a B.Tech CSE student tailor their resume and application for a specific internship.\n\nThe job information is:\n\nJob title: {{ $json.jd_struct.job_title }}\nCompany: {{ $json.jd_struct.company }}\n\nIf company is null, just say \"the company\" instead of inventing a new name.\nYou must use exactly this job title and company name in the output. Do NOT invent any other company or role names.\n\nJOB DESCRIPTION (STRUCTURED JSON):\n{{ $json.jd_struct }}\n\nGAP ANALYSIS (JSON):\n{{ $json.gap_analysis }}\n\nRESUME TEXT:\n{{ $items(\"Text Cleaning\", 0, 0).json.cleaned_resume }}\n\nTASKS:\n1. Write a short 2–3 line professional summary tailored to this job and company. Explicitly mention the job title and (if available) the company name from above. Do not invent years of experience; assume the candidate is a student/early-career.\n2. Suggest 4–6 strong resume bullet points for this role (no “I”, start each with a strong verb, keep them concise, and relate them to AI/ML, writing, content, or skills from the JD and gap analysis).\n3. Write a short cover letter (120–180 words) in simple, natural language, friendly but professional, explicitly mentioning the correct job title and company.\n4. Write a very short email that the candidate can send to HR/recruiter with the resume attached, again using the correct job title and company.\n\nSTYLE RULES:\n- Use clear, natural language, not robotic.\n- Do NOT invent work experience duration (no “2+ years”, etc.).\n- Do NOT invent different company names or job titles.\n- Make bullets specific and aligned with the JD and gap analysis (highlight missing/under-emphasized skills).\n\nOUTPUT FORMAT (IMPORTANT):\nReturn the answer in plain text using exactly this structure:\n\n## Summary\n...\n\n## Resume Bullet Points\n- ...\n- ...\n\n## Cover Letter\n...\n\n## HR Email\n...\n\nDo NOT add any other sections or explanations.\n",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1856,
+        0
+      ],
+      "id": "6a0dd69e-9ebc-43b6-b9c7-f986dddbce6e",
+      "name": "Skill Gap analyzer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0];\n\n// Structured JD from previous JS node\nconst jd = item.json.jd_struct || {};\n\n// Get cleaned resume from the Text Cleaning node\nconst cleanedItem = $items('Text Cleaning', 0, 0) || {};\nconst resumeText = (cleanedItem.json && cleanedItem.json.cleaned_resume) \n  ? cleanedItem.json.cleaned_resume.toLowerCase()\n  : \"\";\n\n// Helper: simple substring-based check\nfunction skillPresent(skill, text) {\n  if (!skill || !text) return false;\n  return text.includes(skill.toLowerCase());\n}\n\nconst matched_skills = [];\nconst missing_skills = [];\nconst under_emphasized_skills = [];\nconst extra_points_to_add = [];\nconst resume_weak_areas = [];\n\nconst mustSkills = jd.must_have_skills || [];\nconst niceSkills = jd.nice_to_have_skills || [];\n\n// Check MUST-HAVE skills in resume\nfor (const skill of mustSkills) {\n  if (skillPresent(skill, resumeText)) {\n    matched_skills.push(skill);\n  } else {\n    missing_skills.push(skill);\n  }\n}\n\n// Very simple heuristic for \"under_emphasized\":\n// nice-to-have skills that appear only partially / generic\nfor (const skill of niceSkills) {\n  if (!skillPresent(skill, resumeText)) {\n    // not present at all -> good candidate to add\n    extra_points_to_add.push(skill);\n  } else {\n    under_emphasized_skills.push(skill);\n  }\n}\n\n// Simple weak areas message\nif (missing_skills.length > 0) {\n  resume_weak_areas.push(\n    `Your resume does not clearly mention these must-have skills: ${missing_skills.join(\", \")}.`\n  );\n}\nif (extra_points_to_add.length > 0) {\n  resume_weak_areas.push(\n    `You could highlight or expand on these nice-to-have skills: ${extra_points_to_add.join(\", \")}.`\n  );\n}\n\nconst overall_fit_comment = (function () {\n  const totalMust = mustSkills.length || 1;\n  const ratio = matched_skills.length / totalMust;\n\n  if (!resumeText) {\n    return \"Resume text was not detected, so skill matching is approximate.\";\n  }\n\n  if (ratio > 0.7) {\n    return \"Your profile matches most of the core skills. Focus on emphasizing writing, SEO, and measurable outcomes.\";\n  } else if (ratio > 0.4) {\n    return \"Your profile matches some important skills, but you should highlight more role-specific skills and results.\";\n  } else {\n    return \"Your profile currently highlights only a few of the required skills. Tailor your resume more towards this role.\";\n  }\n})();\n\n// Attach gap_analysis to item\nitem.json.gap_analysis = {\n  matched_skills,\n  missing_skills,\n  under_emphasized_skills,\n  resume_weak_areas,\n  extra_points_to_add,\n  overall_fit_comment,\n};\n\nreturn [item];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        0
+      ],
+      "id": "9ab0b939-56e9-4061-8c09-debe05a1d6e5",
+      "name": "store gap analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Current item (from Content Generator LLM)\nconst current = items[0];\n\n// Get jd_struct from the JS node that parsed the JD\n// Make sure the string matches the node name exactly as seen in the left panel\nconst jdNode = $items('JD Struct Extraction', 0, 0) || {};\nconst jdJson = jdNode.json || {};\nconst jd_struct = jdJson.jd_struct || {};\n\n// Get gap_analysis from the JS node that computed it\nconst gapNode = $items('store gap analysis', 0, 0) || {};\nconst gapJson = gapNode.json || {};\nconst gap_analysis = gapJson.gap_analysis || {};\n\n// Final markdown: from application_pack_markdown if you created it, \n// or fall back to current.text\nconst markdown =\n  current.json.application_pack_markdown ||\n  current.json.text ||\n  \"No content generated\";\n\nreturn [\n  {\n    json: {\n      job_title: jd_struct.job_title || \"Not detected\",\n      company: jd_struct.company || \"Not detected\",\n      gap_analysis,\n      output_markdown: markdown,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        0
+      ],
+      "id": "69789e97-bf9b-4873-89a4-caac578e27cb",
+      "name": "merge previous data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0];\n\n// Get the final markdown\nconst text = item.json.output_markdown || item.json.text || \"\";\n\n// 🔹 Get job title & company from the JD struct node\n//   (this is the JS node where you parsed jd_struct)\nconst jdNode = $items('JD Struct Extraction', 0, 0) || {};\nconst jdJson = jdNode.json || {};\nconst jd = jdJson.jd_struct || {};\nconst jobTitle = jd.job_title || \"Content & Blog Writing Intern\";\nconst company = jd.company || \"Globik AI Private Limited\";\n\n// Helper to extract sections\nfunction extractSection(name, nextName) {\n  const pattern = nextName\n    ? new RegExp(`## ${name}[\\\\s\\\\S]*?(?=## ${nextName})`, \"i\")\n    : new RegExp(`## ${name}[\\\\s\\\\S]*$`, \"i\");\n\n  const match = text.match(pattern);\n  if (!match) return \"\";\n  return match[0].replace(new RegExp(`## ${name}\\\\s*`, \"i\"), \"\").trim();\n}\n\nconst summary = extractSection(\"Summary\", \"Resume Bullet Points\");\nconst bulletBlock = extractSection(\"Resume Bullet Points\", \"Cover Letter\");\nconst coverLetter = extractSection(\"Cover Letter\", \"HR Email\");\nconst hrEmail = extractSection(\"HR Email\");\n\n// Convert markdown bullets into <ul><li>…</li></ul>\nlet bulletsHtml = \"\";\nif (bulletBlock) {\n  const bulletLines = bulletBlock\n    .split(\"\\n\")\n    .map(l => l.trim())\n    .filter(l => l.startsWith(\"-\"));\n  bulletsHtml =\n    \"<ul>\" +\n    bulletLines.map(l => \"<li>\" + l.replace(/^-\\s*/, \"\") + \"</li>\").join(\"\") +\n    \"</ul>\";\n}\n\nreturn [\n  {\n    json: {\n      job_title: jobTitle,\n      company,\n      summary,\n      bullets_html: bulletsHtml,\n      cover_letter: coverLetter,\n      hr_email: hrEmail,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        0
+      ],
+      "id": "9c102ae3-761b-4382-9228-f0dd7d21e9e6",
+      "name": "Email prepration"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Skill Gap analyzer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Cleaning": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "JD Struct Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Text Cleaning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JD Struct Extraction": {
+      "main": [
+        [
+          {
+            "node": "store gap analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skill Gap analyzer": {
+      "main": [
+        [
+          {
+            "node": "merge previous data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "store gap analysis": {
+      "main": [
+        [
+          {
+            "node": "Skill Gap analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge previous data": {
+      "main": [
+        [
+          {
+            "node": "Email prepration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email prepration": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7097582b-70ea-4d41-ad94-1364bb6c37a7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "fb3ddd724f2f815cf2e62e2caf18493836a511eab48f84f0357d54ac21fe5be5"
+  },
+  "id": "QbhoEZSr1EyJ6LGO",
+  "tags": []
+}
